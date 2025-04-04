@@ -1,5 +1,5 @@
 #include <iostream>
-#include <cuda_runtime.h>
+#include "cuda_runtime.h"
 
 __global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
