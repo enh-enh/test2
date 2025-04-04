@@ -18,7 +18,7 @@ __global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, 
 }
 
 // 封装的 CPU 函数，负责内存管理和内核调用
-void sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
+void Sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
     float *d_A, *d_B, *d_C;
     size_t size_A = N * K * sizeof(float);
     size_t size_B = M * K * sizeof(float);
