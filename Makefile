@@ -1,5 +1,5 @@
 CFLAG = -O3 -g -Wall -fopenmp -lcudart
-CFLAG2 = -O3 -g -fopenmp -lcudart
+CFLAG2 = -O3 -g -lcudart
 
 all:
 	nvcc driver.cc winograd.cu -std=c++17 ${CFLAG2} -o winograd
