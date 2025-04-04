@@ -4,16 +4,46 @@
 #include <cuda_runtime.h>
 #include <omp.h>
 
+// CUDA 规约求和的线程块大小
+const int TILE_SIZE = 16;
+
 __global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    __shared__ float sharedA[TILE_SIZE][TILE_SIZE];
+    __shared__ float sharedB[TILE_SIZE][TILE_SIZE];
+
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int tx = threadIdx.x;
+    int ty = threadIdx.y;
+
+    int row = by * blockDim.y + ty;
+    int col = bx * blockDim.x + tx;
+
+    float sum = 0.0f;
+
+    for (int t = 0; t < (K + TILE_SIZE - 1) / TILE_SIZE; ++t) {
+        if (row < N && t * TILE_SIZE + tx < K) {
+            sharedA[ty][tx] = A[row * K + t * TILE_SIZE + tx];
+        } else {
+            sharedA[ty][tx] = 0.0f;
+        }
+
+        if (col < M && t * TILE_SIZE + ty < K) {
+            sharedB[ty][tx] = B[(t * TILE_SIZE + ty) * M + col];
+        } else {
+            sharedB[ty][tx] = 0.0f;
+        }
+
+        __syncthreads();
+
+        for (int k = 0; k < TILE_SIZE; ++k) {
+            sum += sharedA[ty][k] * sharedB[k][tx];
+        }
+
+        __syncthreads();
+    }
 
     if (row < N && col < M) {
-        float sum = 0.0f;
-        // 保证和 OpenMP 代码一样的内存访问模式
-        for (int64_t k = 0; k < K; ++k) {
-            sum += A[row * K + k] * B[k * M + col];
-        }
         C[row * M + col] = sum;
     }
 }
@@ -31,7 +61,7 @@ void Sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B
     cudaMemcpy(d_A, A, size_A, cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, B, size_B, cudaMemcpyHostToDevice);
 
-    dim3 blockSize(16, 16);
+    dim3 blockSize(TILE_SIZE, TILE_SIZE);
     dim3 gridSize((M + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
 
     sgemm_kernel<<<gridSize, blockSize>>>(N, M, K, d_A, d_B, d_C);
@@ -99,4 +129,4 @@ int main() {
     delete[] C_omp;
 
     return 0;
-}    
+}
