@@ -10,8 +10,9 @@ __global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, 
 
     if (row < N && col < M) {
         float sum = 0.0f;
+        // 保证和 OpenMP 代码一样的内存访问模式
         for (int64_t k = 0; k < K; ++k) {
-            sum += A[row * K + k] * B[col * K + k];
+            sum += A[row * K + k] * B[k * M + col];
         }
         C[row * M + col] = sum;
     }
@@ -20,7 +21,7 @@ __global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, 
 void Sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
     float *d_A, *d_B, *d_C;
     size_t size_A = N * K * sizeof(float);
-    size_t size_B = M * K * sizeof(float);
+    size_t size_B = K * M * sizeof(float);
     size_t size_C = N * M * sizeof(float);
 
     cudaMalloc((void**)&d_A, size_A);
@@ -49,7 +50,7 @@ void sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B
         for (int64_t m = 0; m < M; ++m) {
             sum = 0;
             for (int64_t k = 0; k < K; ++k) {
-                sum += A[n * K + k] * B[m * K + k];
+                sum += A[n * K + k] * B[k * M + m];
             }
             C[n * M + m] = sum;
         }
@@ -62,25 +63,25 @@ int main() {
     const int64_t K = 100;
 
     float *A = new float[N * K];
-    float *B = new float[M * K];
+    float *B = new float[K * M];
     float *C_cuda = new float[N * M];
     float *C_omp = new float[N * M];
 
-    // Initialize matrices A and B
+    // 初始化矩阵 A 和 B
     for (int64_t i = 0; i < N * K; ++i) {
         A[i] = static_cast<float>(rand()) / RAND_MAX;
     }
-    for (int64_t i = 0; i < M * K; ++i) {
+    for (int64_t i = 0; i < K * M; ++i) {
         B[i] = static_cast<float>(rand()) / RAND_MAX;
     }
 
-    // Compute matrix multiplication using CUDA
+    // 使用 CUDA 计算矩阵乘法
     Sgemm(N, M, K, A, B, C_cuda);
 
-    // Compute matrix multiplication using OpenMP
+    // 使用 OpenMP 计算矩阵乘法
     sgemm(N, M, K, A, B, C_omp);
 
-    // Compute the maximum absolute error
+    // 计算最大绝对误差
     float max_error = 0.0f;
     for (int64_t i = 0; i < N * M; ++i) {
         float error = std::abs(C_cuda[i] - C_omp[i]);
@@ -91,11 +92,11 @@ int main() {
 
     std::cout << "Maximum absolute error: " << max_error << std::endl;
 
-    // Clean up memory
+    // 释放内存
     delete[] A;
     delete[] B;
     delete[] C_cuda;
     delete[] C_omp;
 
     return 0;
-}
+}    
