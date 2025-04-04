@@ -1,91 +1,38 @@
-#include <iostream>
+#include <stdint.h>
 #include <cuda_runtime.h>
 
 __global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int n = idx / M;
-    int m = idx % M;
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (n < N && m < M) {
-        float sum = 0;
+    if (row < N && col < M) {
+        float sum = 0.0f;
         for (int64_t k = 0; k < K; ++k) {
-            sum += A[n * K + k] * B[m * K + k];
+            sum += A[row * K + k] * B[col * K + k];
         }
-        C[n * M + m] = sum;
+        C[row * M + col] = sum;
     }
 }
 
-void Sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
+void sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
     float *d_A, *d_B, *d_C;
-    cudaError_t cudaStatus;
+    size_t size_A = N * K * sizeof(float);
+    size_t size_B = M * K * sizeof(float);
+    size_t size_C = N * M * sizeof(float);
 
-    cudaStatus = cudaMalloc((void**)&d_A, N * K * sizeof(float));
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaMalloc d_A failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        return;
-    }
-    cudaStatus = cudaMalloc((void**)&d_B, M * K * sizeof(float));
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaMalloc d_B failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        return;
-    }
-    cudaStatus = cudaMalloc((void**)&d_C, N * M * sizeof(float));
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaMalloc d_C failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        cudaFree(d_B);
-        return;
-    }
+    cudaMalloc((void**)&d_A, size_A);
+    cudaMalloc((void**)&d_B, size_B);
+    cudaMalloc((void**)&d_C, size_C);
 
-    cudaStatus = cudaMemcpy(d_A, A, N * K * sizeof(float), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaMemcpy h_A -> d_A failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        cudaFree(d_B);
-        cudaFree(d_C);
-        return;
-    }
-    cudaStatus = cudaMemcpy(d_B, B, M * K * sizeof(float), cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaMemcpy h_B -> d_B failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        cudaFree(d_B);
-        cudaFree(d_C);
-        return;
-    }
+    cudaMemcpy(d_A, A, size_A, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, B, size_B, cudaMemcpyHostToDevice);
 
-    int blockSize = 256;
-    int gridSize = (N * M + blockSize - 1) / blockSize;
+    dim3 blockSize(16, 16);
+    dim3 gridSize((M + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
 
     sgemm_kernel<<<gridSize, blockSize>>>(N, M, K, d_A, d_B, d_C);
 
-    cudaStatus = cudaGetLastError();
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "Kernel launch failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        cudaFree(d_B);
-        cudaFree(d_C);
-        return;
-    }
-
-    cudaStatus = cudaDeviceSynchronize();
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaDeviceSynchronize failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        cudaFree(d_B);
-        cudaFree(d_C);
-        return;
-    }
-
-    cudaStatus = cudaMemcpy(C, d_C, N * M * sizeof(float), cudaMemcpyDeviceToHost);
-    if (cudaStatus != cudaSuccess) {
-        std::cerr << "cudaMemcpy d_C -> h_C failed: " << cudaGetErrorString(cudaStatus) << std::endl;
-        cudaFree(d_A);
-        cudaFree(d_B);
-        cudaFree(d_C);
-        return;
-    }
+    cudaMemcpy(C, d_C, size_C, cudaMemcpyDeviceToHost);
 
     cudaFree(d_A);
     cudaFree(d_B);
