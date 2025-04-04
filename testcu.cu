@@ -3,22 +3,11 @@
 #include <stdint.h>
 #include <cuda_runtime.h>
 #include <omp.h>
-// CUDA 内核函数，执行矩阵乘法
-__global__ void sgemm_kernel(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+#include <cublas_v2.h>
 
-    if (row < N && col < M) {
-        float sum = 0.0f;
-        for (int64_t k = 0; k < K; ++k) {
-            sum += A[row * K + k] * B[col * K + k];
-        }
-        C[row * M + col] = sum;
-    }
-}
-
-// 封装的 CPU 函数，负责内存管理和内核调用
+// 封装的 sgemm 函数，使用 CUBLAS 优化
 void Sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
+    cublasHandle_t handle;
     float *d_A, *d_B, *d_C;
     size_t size_A = N * K * sizeof(float);
     size_t size_B = M * K * sizeof(float);
@@ -33,21 +22,32 @@ void Sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B
     cudaMemcpy(d_A, A, size_A, cudaMemcpyHostToDevice);
     cudaMemcpy(d_B, B, size_B, cudaMemcpyHostToDevice);
 
-    // 定义线程块和网格的维度
-    dim3 blockSize(16, 16);
-    dim3 gridSize((M + blockSize.x - 1) / blockSize.x, (N + blockSize.y - 1) / blockSize.y);
+    // 创建 CUBLAS 句柄
+    cublasCreate(&handle);
 
-    // 调用 CUDA 内核
-    sgemm_kernel<<<gridSize, blockSize>>>(N, M, K, d_A, d_B, d_C);
+    // 设置矩阵乘法的系数
+    const float alpha = 1.0f;
+    const float beta = 0.0f;
+
+    // 调用 CUBLAS 的 SGEMM 函数执行矩阵乘法
+    // CUBLAS_OP_N 表示矩阵不进行转置
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, 
+                static_cast<int>(M), static_cast<int>(N), static_cast<int>(K), 
+                &alpha, d_B, static_cast<int>(M), 
+                d_A, static_cast<int>(K), 
+                &beta, d_C, static_cast<int>(M));
 
     // 将结果从 GPU 复制回 CPU
     cudaMemcpy(C, d_C, size_C, cudaMemcpyDeviceToHost);
+
+    // 销毁 CUBLAS 句柄
+    cublasDestroy(handle);
 
     // 释放 GPU 内存
     cudaFree(d_A);
     cudaFree(d_B);
     cudaFree(d_C);
-} 
+}
 
 void sgemm(const int64_t N, const int64_t M, const int64_t K, float *A, float *B, float *C) {
 	float sum ;
